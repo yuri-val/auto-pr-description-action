@@ -1,0 +1,30 @@
+name: 'Auto-generate PR Description'
+description: 'Automatically generates pull request descriptions using OpenAI when a PR is created or updated.'
+author: 'Your Name'
+runs:
+  using: 'node16'
+  main: 'dist/index.js'
+inputs:
+  openai_api_key:
+    description: 'Your OpenAI API Key'
+    required: true
+  openai_model:
+    description: 'OpenAI model to use (e.g., gpt-4, gpt-3.5-turbo)'
+    required: false
+    default: 'gpt-4o-mini'
+  github_token:
+    description: 'GitHub token with repo permissions'
+    required: true
+    default: '${{ github.token }}'
+  temperature:
+    description: 'Sampling temperature for OpenAI (0.0 to 1.0)'
+    required: false
+    default: '0.7'
+outputs:
+  pr_number:
+    description: 'The number of the pull request updated'
+  description:
+    description: 'The generated pull request description'
+branding:
+  icon: 'git-pull-request'
+  color: 'green'
