@@ -33,13 +33,13 @@ async function run() {
     const diffOutput = execSync(`git diff origin/${baseRef} origin/${headRef}`, { encoding: 'utf8' });
 
     // Generate the PR description
-    const description = await generateDescription(diffOutput, openaiApiKey, openaiModel, temperature);
+    const generatedDescription = await generateDescription(diffOutput, openaiApiKey, openaiModel, temperature);
 
     // Update the PR
-    await updatePRDescription(githubToken, context, prNumber, description);
+    await updatePRDescription(githubToken, context, prNumber, generatedDescription);
 
     core.setOutput('pr_number', prNumber.toString());
-    core.setOutput('description', description);
+    core.setOutput('description', generatedDescription);
     console.log(`Successfully updated PR #${prNumber} description.`);
   } catch (error) {
     core.setFailed(error.message);
@@ -90,14 +90,31 @@ ${diffOutput}`;
   return description;
 }
 
-async function updatePRDescription(githubToken, context, prNumber, description) {
+async function updatePRDescription(githubToken, context, prNumber, generatedDescription) {
   const octokit = github.getOctokit(githubToken);
 
+  // Fetch the current PR description
+  const { data: pullRequest } = await octokit.rest.pulls.get({
+    owner: context.repo.owner,
+    repo: context.repo.repo,
+    pull_number: prNumber,
+  });
+
+  let newDescription = pullRequest.body || '';
+
+  // Append the generated description
+  if (newDescription) {
+    newDescription += '\n\n';
+    newDescription += '---\n\n';
+  }
+  newDescription += generatedDescription;
+
+  // Update the PR with the new description
   await octokit.rest.pulls.update({
     owner: context.repo.owner,
     repo: context.repo.repo,
     pull_number: prNumber,
-    body: description,
+    body: newDescription,
   });
 }
 
