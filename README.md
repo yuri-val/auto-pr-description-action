@@ -33,7 +33,7 @@ jobs:
       pull-requests: write
       issues: write
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Auto-generate PR Description
         uses: yuri-val/auto-pr-description-action@v1
         with:
