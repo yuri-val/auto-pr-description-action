@@ -34569,29 +34569,42 @@ ${diffOutput}`;
 async function updatePRDescription(githubToken, context, prNumber, generatedDescription) {
   const octokit = github.getOctokit(githubToken);
 
-  // Fetch the current PR description
-  const { data: pullRequest } = await octokit.rest.pulls.get({
-    owner: context.repo.owner,
-    repo: context.repo.repo,
-    pull_number: prNumber,
-  });
+  try {
+    // Fetch the current PR description
+    const { data: pullRequest } = await octokit.rest.pulls.get({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      pull_number: prNumber,
+    });
 
-  let newDescription = pullRequest.body || '';
+    let currentDescription = pullRequest.body || '';
+    let newDescription = `---\n${generatedDescription}`;
 
-  // Append the generated description
-  if (newDescription) {
-    newDescription += '\n\n';
-    newDescription += '---\n\n';
+    if (currentDescription && !currentDescription.startsWith('---\n')) {
+      console.log('Creating comment with original description...');
+      await octokit.rest.issues.createComment({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        issue_number: prNumber,
+        body: `**Original description**:\n\n${currentDescription}`
+      });
+      console.log('Comment created successfully.');
+    }
+
+    // Update the PR with the new description
+    console.log('Updating PR description...');
+    await octokit.rest.pulls.update({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      pull_number: prNumber,
+      body: newDescription,
+    });
+    console.log('PR description updated successfully.');
+
+  } catch (error) {
+    console.error('Error in updatePRDescription:', error);
+    throw error;  // Re-throw the error to be caught in the main try-catch block
   }
-  newDescription += generatedDescription;
-
-  // Update the PR with the new description
-  await octokit.rest.pulls.update({
-    owner: context.repo.owner,
-    repo: context.repo.repo,
-    pull_number: prNumber,
-    body: newDescription,
-  });
 }
 
 run();
