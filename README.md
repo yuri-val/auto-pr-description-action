@@ -8,6 +8,14 @@ This GitHub Action leverages OpenAI's cutting-edge language models to automatica
 - Uses OpenAI's powerful language models
 - Customizable OpenAI model and temperature settings
 - Supports GitHub Actions workflow
+- Fetches diff content and commit messages for context
+
+
+## 📝 ToDo
+
+- [ ] Handles rate limiting and retries API calls
+- [ ] Configurable prompt templates for description generation
+- [ ] Supports multiple languages for generated descriptions
 
 ## 📋 Requirements
 
@@ -33,7 +41,7 @@ jobs:
       pull-requests: write
       issues: write
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Auto-generate PR Description
         uses: yuri-val/auto-pr-description-action@v1
         with:
