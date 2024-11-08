@@ -34578,9 +34578,11 @@ async function updatePRDescription(githubToken, context, prNumber, generatedDesc
     });
 
     let currentDescription = pullRequest.body || '';
-    let newDescription = `---\n${generatedDescription}`;
+    let newDescription = `> \`AUTO DESCRIPTION\`
+> by [auto-pr-description-action](https://github.com/yuri-val/auto-pr-description-action)
+\n${generatedDescription}`;
 
-    if (currentDescription && !currentDescription.startsWith('---\n')) {
+    if (currentDescription && !currentDescription.startsWith('> `AUTO DESCRIPTION`')) {
       console.log('Creating comment with original description...');
       await octokit.rest.issues.createComment({
         owner: context.repo.owner,
