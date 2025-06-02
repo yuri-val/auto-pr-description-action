@@ -11,7 +11,7 @@ inputs:
   openai_model:
     description: 'OpenAI model to use (e.g., gpt-4, gpt-3.5-turbo)'
     required: false
-    default: 'gpt-4o-mini'
+    default: 'gpt-4.1-nano'
   github_token:
     description: 'GitHub token with repo permissions'
     required: true
