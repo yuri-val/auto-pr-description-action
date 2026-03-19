@@ -34540,27 +34540,34 @@ Please generate a **Pull Request description** for the provided diff, following 
 **Diff:**
 ${diffOutput}`;
 
+  const isReasoningModel = /^(o[1-9]|gpt-5)/.test(openaiModel);
+
+  const requestBody = {
+    model: openaiModel,
+    messages: [
+      {
+        role: 'system',
+        content: 'You are a helpful assistant who generates pull request descriptions based on diffs.',
+      },
+      {
+        role: 'user',
+        content: prompt,
+      },
+    ],
+    max_completion_tokens: 1024,
+  };
+
+  if (!isReasoningModel) {
+    requestBody.temperature = temperature;
+  }
+
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${openaiApiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model: openaiModel,
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a helpful assistant who generates pull request descriptions based on diffs.',
-        },
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-      temperature,
-      max_tokens: 1024,
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!response.ok) {
