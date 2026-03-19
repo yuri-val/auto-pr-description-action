@@ -61,7 +61,7 @@ jobs:
           git push origin --force "${{ steps.get_base_version.outputs.BASE_VERSION }}"
 
       - name: Create or Update Base Release
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         env:
           CHANGELOG: ${{ toJSON(steps.generate_changelog.outputs.CHANGELOG) }}
         with:
@@ -111,7 +111,7 @@ jobs:
             }
 
       - name: Create Full Version Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.get_tag.outputs.TAG }}
           name: Release ${{ steps.get_tag.outputs.TAG }}

@@ -34479,11 +34479,13 @@ const github = __nccwpck_require__(5438);
 const fetch = __nccwpck_require__(467);
 const { execSync } = __nccwpck_require__(2081);
 
+const MAX_DIFF_LENGTH = 30000;
+const AUTO_DESCRIPTION_MARKER = '> `AUTO DESCRIPTION`';
+
 async function run() {
   try {
-    // Inputs
     const openaiApiKey = core.getInput('openai_api_key', { required: true });
-    const openaiModel = core.getInput('openai_model') || 'gpt-4o-mini';
+    const openaiModel = core.getInput('openai_model') || 'gpt-5.4-mini';
     const githubToken = core.getInput('github_token', { required: true });
     const temperature = parseFloat(core.getInput('temperature') || '0.7');
 
@@ -34498,20 +34500,25 @@ async function run() {
     const baseRef = context.payload.pull_request.base.ref;
     const headRef = context.payload.pull_request.head.ref;
 
-    // Set up Git
-    execSync(`git config --global user.name "github-actions[bot]"`);
-    execSync(`git config --global user.email "github-actions[bot]@users.noreply.github.com"`);
+    execSync('git config user.name "github-actions[bot]"');
+    execSync('git config user.email "github-actions[bot]@users.noreply.github.com"');
 
-    // Fetch branches
     execSync(`git fetch origin ${baseRef} ${headRef}`);
 
-    // Get the diff
-    const diffOutput = execSync(`git diff origin/${baseRef} origin/${headRef}`, { encoding: 'utf8' });
+    let diffOutput = execSync(`git diff origin/${baseRef}...origin/${headRef}`, { encoding: 'utf8' });
 
-    // Generate the PR description
+    if (!diffOutput.trim()) {
+      console.log('No diff found between branches. Skipping description generation.');
+      return;
+    }
+
+    if (diffOutput.length > MAX_DIFF_LENGTH) {
+      console.log(`Diff too large (${diffOutput.length} chars), truncating to ${MAX_DIFF_LENGTH} chars.`);
+      diffOutput = diffOutput.substring(0, MAX_DIFF_LENGTH) + '\n... [diff truncated]';
+    }
+
     const generatedDescription = await generateDescription(diffOutput, openaiApiKey, openaiModel, temperature);
 
-    // Update the PR
     await updatePRDescription(githubToken, context, prNumber, generatedDescription);
 
     core.setOutput('pr_number', prNumber.toString());
@@ -34551,10 +34558,15 @@ ${diffOutput}`;
           content: prompt,
         },
       ],
-      temperature: temperature,
+      temperature,
       max_tokens: 1024,
     }),
   });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI API request failed (${response.status}): ${errorText}`);
+  }
 
   const data = await response.json();
 
@@ -34562,51 +34574,43 @@ ${diffOutput}`;
     throw new Error(`OpenAI API Error: ${data.error.message}`);
   }
 
-  const description = data.choices[0].message.content.trim();
-  return description;
+  return data.choices[0].message.content.trim();
 }
 
 async function updatePRDescription(githubToken, context, prNumber, generatedDescription) {
   const octokit = github.getOctokit(githubToken);
 
-  try {
-    // Fetch the current PR description
-    const { data: pullRequest } = await octokit.rest.pulls.get({
-      owner: context.repo.owner,
-      repo: context.repo.repo,
-      pull_number: prNumber,
-    });
+  const { data: pullRequest } = await octokit.rest.pulls.get({
+    owner: context.repo.owner,
+    repo: context.repo.repo,
+    pull_number: prNumber,
+  });
 
-    let currentDescription = pullRequest.body || '';
-    let newDescription = `> \`AUTO DESCRIPTION\`
+  const currentDescription = pullRequest.body || '';
+  const newDescription = `${AUTO_DESCRIPTION_MARKER}
 > by [auto-pr-description-action](https://github.com/yuri-val/auto-pr-description-action)
-\n${generatedDescription}`;
 
-    if (currentDescription && !currentDescription.startsWith('> `AUTO DESCRIPTION`')) {
-      console.log('Creating comment with original description...');
-      await octokit.rest.issues.createComment({
-        owner: context.repo.owner,
-        repo: context.repo.repo,
-        issue_number: prNumber,
-        body: `**Original description**:\n\n${currentDescription}`
-      });
-      console.log('Comment created successfully.');
-    }
+${generatedDescription}`;
 
-    // Update the PR with the new description
-    console.log('Updating PR description...');
-    await octokit.rest.pulls.update({
+  if (currentDescription && !currentDescription.startsWith(AUTO_DESCRIPTION_MARKER)) {
+    console.log('Creating comment with original description...');
+    await octokit.rest.issues.createComment({
       owner: context.repo.owner,
       repo: context.repo.repo,
-      pull_number: prNumber,
-      body: newDescription,
+      issue_number: prNumber,
+      body: `**Original description**:\n\n${currentDescription}`,
     });
-    console.log('PR description updated successfully.');
-
-  } catch (error) {
-    console.error('Error in updatePRDescription:', error);
-    throw error;  // Re-throw the error to be caught in the main try-catch block
+    console.log('Comment created successfully.');
   }
+
+  console.log('Updating PR description...');
+  await octokit.rest.pulls.update({
+    owner: context.repo.owner,
+    repo: context.repo.repo,
+    pull_number: prNumber,
+    body: newDescription,
+  });
+  console.log('PR description updated successfully.');
 }
 
 run();
