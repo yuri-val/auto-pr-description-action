@@ -58,9 +58,9 @@ You can customize the action by providing the following inputs:
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
 | `openai_api_key` | Your OpenAI API Key | Yes | N/A |
-| `openai_model` | OpenAI model to use (e.g., gpt-5.4-mini, gpt-4o) | No | gpt-5.4-mini |
+| `openai_model` | OpenAI model to use (e.g., gpt-5.6-luna, gpt-5.6-terra) | No | gpt-5.6-luna |
 | `github_token` | GitHub token with repo permissions | Yes | ${{ github.token }} |
-| `temperature` | Sampling temperature for OpenAI (0.0 to 1.0) | No | 0.7 |
+| `temperature` | Sampling temperature (0.0 to 1.0). Ignored for reasoning models (gpt-5.x, o-series) | No | 0.7 |
 
 ## 📤 Outputs
 

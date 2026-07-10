@@ -3,13 +3,15 @@ const github = require('@actions/github');
 const fetch = require('node-fetch');
 const { execSync } = require('child_process');
 
-const MAX_DIFF_LENGTH = 30000;
+// gpt-5.6 models have a 400k-token context window; 100k chars (~25k tokens)
+// keeps plenty of headroom while covering most real-world PRs untruncated.
+const MAX_DIFF_LENGTH = 100000;
 const AUTO_DESCRIPTION_MARKER = '> `AUTO DESCRIPTION`';
 
 async function run() {
   try {
     const openaiApiKey = core.getInput('openai_api_key', { required: true });
-    const openaiModel = core.getInput('openai_model') || 'gpt-5.4-mini';
+    const openaiModel = core.getInput('openai_model') || 'gpt-5.6-luna';
     const githubToken = core.getInput('github_token', { required: true });
     const temperature = parseFloat(core.getInput('temperature') || '0.7');
 
@@ -53,17 +55,19 @@ async function run() {
   }
 }
 
+// Lean system prompt tuned for GPT-5.6 (see
+// https://developers.openai.com/api/docs/guides/latest-model): concise
+// instructions outperform long rule lists and cut token usage.
+const SYSTEM_PROMPT = `You write GitHub pull request descriptions.
+
+The user message contains the git diff of the PR. From it, produce the PR description body in GitHub Markdown:
+- Start with a 1-2 sentence summary of the change.
+- Group the changes into sections with emoji headings (e.g. ✨ Features, 🐛 Fixes, 🔧 Maintenance); include only sections that apply.
+- Describe user-visible impact, not file-by-file mechanics.
+
+Output only the description body — no title, no preamble, no code fences around the whole answer.`;
+
 async function generateDescription(diffOutput, openaiApiKey, openaiModel, temperature) {
-  const prompt = `**Instructions:**
-
-Please generate a **Pull Request description** for the provided diff, following these guidelines:
-- Add appropriate emojis to the description.
-- Do **not** include the words "Title" and "Description" in your output.
-- Format your answer in **Markdown**.
-
-**Diff:**
-${diffOutput}`;
-
   const isReasoningModel = /^(o[1-9]|gpt-5)/.test(openaiModel);
 
   const requestBody = {
@@ -71,17 +75,26 @@ ${diffOutput}`;
     messages: [
       {
         role: 'system',
-        content: 'You are a helpful assistant who generates pull request descriptions based on diffs.',
+        content: SYSTEM_PROMPT,
       },
       {
         role: 'user',
-        content: prompt,
+        content: diffOutput,
       },
     ],
-    max_completion_tokens: 1024,
+    // Reasoning models spend completion tokens on internal reasoning before
+    // the visible answer, so the budget needs headroom beyond the description
+    // itself.
+    max_completion_tokens: 4096,
   };
 
-  if (!isReasoningModel) {
+  if (isReasoningModel) {
+    // Reasoning models reject a custom temperature. A short PR summary does
+    // not need deep reasoning — "low" keeps responses fast and cheap.
+    if (/^gpt-5/.test(openaiModel)) {
+      requestBody.reasoning_effort = 'low';
+    }
+  } else {
     requestBody.temperature = temperature;
   }
 
