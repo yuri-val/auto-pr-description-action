@@ -6,7 +6,7 @@
   "scripts": {
     "build": "ncc build index.js --license licenses.txt",
     "prepare": "husky",
-    "test": "node --test 'tests/*.test.js'"
+    "test": "node --test tests/*.test.js"
   },
   "author": "Yuri V",
   "license": "MIT",
