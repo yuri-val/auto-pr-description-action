@@ -8,7 +8,21 @@ This GitHub Action leverages OpenAI's cutting-edge language models to automatica
 - Uses OpenAI's powerful language models
 - Customizable OpenAI model and temperature settings
 - Supports GitHub Actions workflow
-- Fetches diff content and commit messages for context
+- **Context-aware**: the model sees the diff *plus* the PR's current description and its
+  full comment thread (issue comments, review summaries and inline code comments), so
+  ticket links, decisions and reviewer concerns survive regeneration
+
+### What the model receives
+
+| Section | Content | Role |
+|---|---|---|
+| `<diff>` | `git diff base...head` | source of truth for **what** changed |
+| `<current_description>` | the PR body, labelled as human-written or previously auto-generated | **why** — intent, ticket links, notes to preserve |
+| `<comments>` | issue comments, review bodies and inline review comments (with `file:line`) | discussion context, resolved concerns, the archived original description |
+
+Budgets keep the request bounded: 100k chars of diff, 5k of description, 20k of comments
+(2k per comment). Anything cut is marked as truncated. Comment reads are best-effort — if
+the token lacks the scope, generation still proceeds on the diff alone.
 
 
 ## 📝 ToDo

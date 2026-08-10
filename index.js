@@ -3,10 +3,11 @@ const github = require('@actions/github');
 const fetch = require('node-fetch');
 const { execSync } = require('child_process');
 
-// gpt-5.6 models have a 400k-token context window; 100k chars (~25k tokens)
-// keeps plenty of headroom while covering most real-world PRs untruncated.
-const MAX_DIFF_LENGTH = 100000;
-const AUTO_DESCRIPTION_MARKER = '> `AUTO DESCRIPTION`';
+const {
+  AUTO_DESCRIPTION_MARKER,
+  SYSTEM_PROMPT,
+  buildUserMessage,
+} = require('./context');
 
 async function run() {
   try {
@@ -31,21 +32,24 @@ async function run() {
 
     execSync(`git fetch origin ${baseRef} ${headRef}`);
 
-    let diffOutput = execSync(`git diff origin/${baseRef}...origin/${headRef}`, { encoding: 'utf8' });
+    const diffOutput = execSync(`git diff origin/${baseRef}...origin/${headRef}`, { encoding: 'utf8' });
 
     if (!diffOutput.trim()) {
       console.log('No diff found between branches. Skipping description generation.');
       return;
     }
 
-    if (diffOutput.length > MAX_DIFF_LENGTH) {
-      console.log(`Diff too large (${diffOutput.length} chars), truncating to ${MAX_DIFF_LENGTH} chars.`);
-      diffOutput = diffOutput.substring(0, MAX_DIFF_LENGTH) + '\n... [diff truncated]';
-    }
+    const octokit = github.getOctokit(githubToken);
 
-    const generatedDescription = await generateDescription(diffOutput, openaiApiKey, openaiModel, temperature);
+    const currentDescription = context.payload.pull_request.body || '';
+    const comments = await collectComments(octokit, context, prNumber);
+    console.log(`Collected ${comments.length} comment(s) for PR #${prNumber}.`);
 
-    await updatePRDescription(githubToken, context, prNumber, generatedDescription);
+    const userMessage = buildUserMessage({ diff: diffOutput, currentDescription, comments });
+
+    const generatedDescription = await generateDescription(userMessage, openaiApiKey, openaiModel, temperature);
+
+    await updatePRDescription(octokit, context, prNumber, currentDescription, generatedDescription);
 
     core.setOutput('pr_number', prNumber.toString());
     core.setOutput('description', generatedDescription);
@@ -55,19 +59,58 @@ async function run() {
   }
 }
 
-// Lean system prompt tuned for GPT-5.6 (see
-// https://developers.openai.com/api/docs/guides/latest-model): concise
-// instructions outperform long rule lists and cut token usage.
-const SYSTEM_PROMPT = `You write GitHub pull request descriptions.
+/**
+ * Gather the whole PR conversation: issue comments, review summaries and
+ * inline code comments. Comment access is best-effort — a token without the
+ * matching read scope must not break description generation.
+ */
+async function collectComments(octokit, context, prNumber) {
+  const { owner, repo } = context.repo;
+  const comments = [];
 
-The user message contains the git diff of the PR. From it, produce the PR description body in GitHub Markdown:
-- Start with a 1-2 sentence summary of the change.
-- Group the changes into sections with emoji headings (e.g. ✨ Features, 🐛 Fixes, 🔧 Maintenance); include only sections that apply.
-- Describe user-visible impact, not file-by-file mechanics.
+  const sources = [
+    {
+      kind: 'comment',
+      fetch: () => octokit.paginate(octokit.rest.issues.listComments, {
+        owner, repo, issue_number: prNumber, per_page: 100,
+      }),
+      map: (c) => ({ kind: 'comment', author: c.user && c.user.login, body: c.body }),
+    },
+    {
+      kind: 'review',
+      fetch: () => octokit.paginate(octokit.rest.pulls.listReviews, {
+        owner, repo, pull_number: prNumber, per_page: 100,
+      }),
+      map: (r) => ({ kind: `review:${(r.state || '').toLowerCase()}`, author: r.user && r.user.login, body: r.body }),
+    },
+    {
+      kind: 'review comment',
+      fetch: () => octokit.paginate(octokit.rest.pulls.listReviewComments, {
+        owner, repo, pull_number: prNumber, per_page: 100,
+      }),
+      map: (c) => ({
+        kind: 'review comment',
+        author: c.user && c.user.login,
+        body: c.body,
+        path: c.path,
+        line: c.line || c.original_line,
+      }),
+    },
+  ];
 
-Output only the description body — no title, no preamble, no code fences around the whole answer.`;
+  for (const source of sources) {
+    try {
+      const items = await source.fetch();
+      comments.push(...items.map(source.map));
+    } catch (error) {
+      console.log(`Could not read ${source.kind}s (${error.message}). Continuing without them.`);
+    }
+  }
 
-async function generateDescription(diffOutput, openaiApiKey, openaiModel, temperature) {
+  return comments.filter((c) => c.body && c.body.trim());
+}
+
+async function generateDescription(userMessage, openaiApiKey, openaiModel, temperature) {
   const isReasoningModel = /^(o[1-9]|gpt-5)/.test(openaiModel);
 
   const requestBody = {
@@ -79,7 +122,7 @@ async function generateDescription(diffOutput, openaiApiKey, openaiModel, temper
       },
       {
         role: 'user',
-        content: diffOutput,
+        content: userMessage,
       },
     ],
     // Reasoning models spend completion tokens on internal reasoning before
@@ -121,16 +164,7 @@ async function generateDescription(diffOutput, openaiApiKey, openaiModel, temper
   return data.choices[0].message.content.trim();
 }
 
-async function updatePRDescription(githubToken, context, prNumber, generatedDescription) {
-  const octokit = github.getOctokit(githubToken);
-
-  const { data: pullRequest } = await octokit.rest.pulls.get({
-    owner: context.repo.owner,
-    repo: context.repo.repo,
-    pull_number: prNumber,
-  });
-
-  const currentDescription = pullRequest.body || '';
+async function updatePRDescription(octokit, context, prNumber, currentDescription, generatedDescription) {
   const newDescription = `${AUTO_DESCRIPTION_MARKER}
 > by [auto-pr-description-action](https://github.com/yuri-val/auto-pr-description-action)
 
@@ -157,4 +191,10 @@ ${generatedDescription}`;
   console.log('PR description updated successfully.');
 }
 
-run();
+// Only run when GitHub executes the action; requiring the file (tests, tooling)
+// must not trigger a real run.
+if (require.main === module) {
+  run();
+}
+
+module.exports = { run, collectComments, generateDescription, updatePRDescription };
