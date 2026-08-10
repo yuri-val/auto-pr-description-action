@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
 
       - name: Auto-generate PR Description
-        uses: yuri-val/auto-pr-description-action@feat/pr-context
+        uses: yuri-val/auto-pr-description-action@v1
         with:
           openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           openai_model: 'gpt-5.4-mini'
