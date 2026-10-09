@@ -1,6 +1,6 @@
 const { postJson, chatCompletionText } = require('./http');
 
-const DEFAULT_MODEL = 'gpt-5.6-luna';
+const DEFAULT_MODEL = 'gpt-6-luna';
 const API_URL = 'https://api.openai.com/v1/chat/completions';
 
 // Reasoning models (o-series, gpt-5 and later) reject a custom temperature and

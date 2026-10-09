@@ -37,6 +37,17 @@ const SENSITIVE_PATH_PATTERNS = [
   /(^|\/)master\.key$/i,
 ];
 
+// Build output and lockfiles: machine-written, often huge, and they say
+// nothing a description needs beyond "this was rebuilt". Left in, a rebuilt
+// dist/ bundle fills the whole diff budget and the real changes are cut off.
+const GENERATED_PATH_PATTERNS = [
+  /(^|\/)dist\//,
+  /\.min\.(js|css)$/i,
+  /\.(js|css)\.map$/i,
+  /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?)$/,
+  /(^|\/)(Gemfile\.lock|composer\.lock|poetry\.lock|Pipfile\.lock|uv\.lock|Cargo\.lock|go\.sum)$/,
+];
+
 // GitHub closes the referenced issue on merge when a PR body says
 // "Closes #N", "fixes owner/repo#N", "Resolved: <issue URL>" and so on.
 const CLOSING_KEYWORD_RE =
@@ -135,6 +146,35 @@ function redactSensitiveFiles(diff) {
 }
 
 /**
+ * @param {string} path
+ * @returns {boolean}
+ */
+function isGeneratedPath(path) {
+  return typeof path === 'string' && GENERATED_PATH_PATTERNS.some((re) => re.test(path));
+}
+
+/**
+ * Replace the hunks of generated files (dist/, lockfiles, source maps,
+ * minified assets) with a one-line note, so the diff budget goes to the code
+ * people wrote. The note keeps the file name and the size of the change.
+ * @param {string} diff unified git diff
+ * @returns {string}
+ */
+function omitGeneratedFiles(diff) {
+  if (typeof diff !== 'string' || !diff) return diff || '';
+  return diff
+    .split(/(?=^diff --git )/m)
+    .map((section) => {
+      const header = section.match(/^diff --git a\/(.+?) b\/(.+)$/m);
+      if (!header || !(isGeneratedPath(header[1]) || isGeneratedPath(header[2]))) return section;
+      const added = (section.match(/^\+(?!\+\+ )/gm) || []).length;
+      const removed = (section.match(/^-(?!-- )/gm) || []).length;
+      return `diff --git a/${header[1]} b/${header[2]}\n[generated file, contents omitted: +${added} -${removed} lines]\n`;
+    })
+    .join('');
+}
+
+/**
  * Turn issue-closing keywords the model produced into plain references unless
  * the trusted input already contained that exact reference. A stray
  * "Closes #42" would otherwise close an unrelated issue when the PR merges.
@@ -196,7 +236,8 @@ function formatComments(comments) {
  * @returns {string}
  */
 function buildUserMessage({ diff, currentDescription = '', comments = [] }) {
-  const sections = [`<diff>\n${truncate(redactSensitiveFiles(diff), MAX_DIFF_LENGTH, 'diff')}\n</diff>`];
+  const relevant = omitGeneratedFiles(redactSensitiveFiles(diff));
+  const sections = [`<diff>\n${truncate(relevant, MAX_DIFF_LENGTH, 'diff')}\n</diff>`];
 
   const description = (currentDescription || '').trim();
   if (description) {
@@ -229,6 +270,8 @@ module.exports = {
   filterTrustedComments,
   isSensitivePath,
   redactSensitiveFiles,
+  isGeneratedPath,
+  omitGeneratedFiles,
   neutralizeClosingKeywords,
   formatComments,
   buildUserMessage,
@@ -37292,7 +37335,7 @@ module.exports = { name: 'open-router', DEFAULT_MODEL, buildRequest, generate };
 
 const { postJson, chatCompletionText } = __nccwpck_require__(9865);
 
-const DEFAULT_MODEL = 'gpt-5.6-luna';
+const DEFAULT_MODEL = 'gpt-6-luna';
 const API_URL = 'https://api.openai.com/v1/chat/completions';
 
 // Reasoning models (o-series, gpt-5 and later) reject a custom temperature and

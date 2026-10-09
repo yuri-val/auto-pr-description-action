@@ -93,7 +93,7 @@ jobs:
 
 | `provider` | Default model | Key (input, or environment variable) |
 |---|---|---|
-| `openai` (default) | `gpt-5.6-luna` | `openai_api_key` / `OPENAI_API_KEY` |
+| `openai` (default) | `gpt-6-luna` | `openai_api_key` / `OPENAI_API_KEY` |
 | `claude` | `claude-haiku-5-5` | `anthropic_api_key` / `ANTHROPIC_API_KEY` (or `CLAUDE_API_KEY`) |
 | `open-router` | `deepseek/deepseek-v4.1-flash` | `openrouter_api_key` / `OPENROUTER_API_KEY` |
 
