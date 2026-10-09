@@ -38,7 +38,7 @@ const CLOSING_KEYWORD_RE =
 
 const SYSTEM_PROMPT = `You write GitHub pull request descriptions.
 
-The user message has up to three sections:
+The user message has up to three sections; any of the last two may be absent:
 - <diff> — the git diff. This is the source of truth for WHAT changed.
 - <current_description> — the description the PR has right now. It may be an earlier auto-generated one (marked as such) or written by a human.
 - <comments> — the PR conversation: review comments, inline code comments, and the archived original description.
@@ -58,7 +58,7 @@ Produce the PR description body in GitHub Markdown:
 - Group the changes into sections with emoji headings (e.g. ✨ Features, 🐛 Fixes, 🔧 Maintenance); include only sections that apply.
 - Describe user-visible impact, not file-by-file mechanics.
 
-Output only the description body — no title, no preamble, no code fences around the whole answer.`;
+Output only the description body — no title, no preamble, no code fences around the whole answer. Never echo the section tags, and never remark on which sections were or were not provided.`;
 
 /**
  * Truncate text to a maximum length, appending a visible marker when cut.

@@ -9,18 +9,13 @@ const {
   filterTrustedComments,
   neutralizeClosingKeywords,
 } = require('./context');
-
-// A hung OpenAI request would otherwise hold the job until the 6h job limit.
-const OPENAI_TIMEOUT_MS = 180000;
-const OPENAI_MAX_ATTEMPTS = 3;
-const OPENAI_RETRY_BASE_DELAY_MS = 2000;
+const { resolveConfig } = require('./providers');
 
 async function run() {
   try {
-    const openaiApiKey = core.getInput('openai_api_key', { required: true });
-    const openaiModel = core.getInput('openai_model') || 'gpt-5.6-luna';
+    const ai = resolveConfig((name) => core.getInput(name), process.env);
     const githubToken = core.getInput('github_token', { required: true });
-    const temperature = parseFloat(core.getInput('temperature') || '0.7');
+    console.log(`Provider: ${ai.provider}, model: ${ai.model}.`);
 
     const context = github.context;
 
@@ -50,10 +45,17 @@ async function run() {
     const userMessage = buildUserMessage({ diff: diffOutput, currentDescription, comments });
 
     const trustedText = [currentDescription, ...comments.map((c) => c.body)].join('\n');
-    const generatedDescription = neutralizeClosingKeywords(
-      await generateDescription(userMessage, openaiApiKey, openaiModel, temperature),
-      trustedText,
-    );
+    const started = Date.now();
+    const result = await ai.generate({
+      system: SYSTEM_PROMPT,
+      user: userMessage,
+      model: ai.model,
+      apiKey: ai.apiKey,
+      temperature: ai.temperature,
+      workspaceId: ai.workspaceId,
+    });
+    console.log(`Generated in ${((Date.now() - started) / 1000).toFixed(1)}s — ${result.usage.input} input / ${result.usage.output} output tokens.`);
+    const generatedDescription = neutralizeClosingKeywords(result.text, trustedText);
 
     await updatePRDescription(octokit, context, prNumber, currentDescription, generatedDescription);
 
@@ -168,85 +170,6 @@ function authorOf(item) {
   };
 }
 
-async function generateDescription(userMessage, openaiApiKey, openaiModel, temperature) {
-  const isReasoningModel = /^(o[1-9]|gpt-5)/.test(openaiModel);
-
-  const requestBody = {
-    model: openaiModel,
-    messages: [
-      {
-        role: 'system',
-        content: SYSTEM_PROMPT,
-      },
-      {
-        role: 'user',
-        content: userMessage,
-      },
-    ],
-    // Reasoning models spend completion tokens on internal reasoning before
-    // the visible answer, so the budget needs headroom beyond the description
-    // itself.
-    max_completion_tokens: 4096,
-  };
-
-  if (isReasoningModel) {
-    // Reasoning models reject a custom temperature. A short PR summary does
-    // not need deep reasoning — "low" keeps responses fast and cheap.
-    if (/^gpt-5/.test(openaiModel)) {
-      requestBody.reasoning_effort = 'low';
-    }
-  } else {
-    requestBody.temperature = temperature;
-  }
-
-  const data = await postWithRetries('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${openaiApiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (data.error) {
-    throw new Error(`OpenAI API Error: ${data.error.message}`);
-  }
-
-  const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-  if (typeof content !== 'string' || !content.trim()) {
-    throw new Error('OpenAI returned an empty description.');
-  }
-  return content.trim();
-}
-
-// Retries rate limits, 5xx and network errors/timeouts with exponential
-// backoff; any other 4xx is a request problem and fails straight away.
-async function postWithRetries(url, options) {
-  for (let attempt = 1; ; attempt++) {
-    let retryable;
-    let failure;
-    try {
-      const response = await fetch(url, { ...options, signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS) });
-      if (response.ok) {
-        return await response.json();
-      }
-      const errorText = await response.text();
-      failure = new Error(`OpenAI API request failed (${response.status}): ${errorText.slice(0, 1000)}`);
-      retryable = response.status === 429 || response.status >= 500;
-    } catch (error) {
-      failure = new Error(`OpenAI API request failed: ${error.message}`);
-      retryable = true;
-    }
-
-    if (!retryable || attempt >= OPENAI_MAX_ATTEMPTS) {
-      throw failure;
-    }
-    const delay = OPENAI_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
-    console.log(`${failure.message} — retry ${attempt}/${OPENAI_MAX_ATTEMPTS - 1} in ${delay}ms...`);
-    await new Promise((resolve) => setTimeout(resolve, delay));
-  }
-}
-
 async function updatePRDescription(octokit, context, prNumber, currentDescription, generatedDescription) {
   const newDescription = `${AUTO_DESCRIPTION_MARKER}
 > by [auto-pr-description-action](https://github.com/yuri-val/auto-pr-description-action)
@@ -280,4 +203,4 @@ if (require.main === module) {
   run();
 }
 
-module.exports = { run, getDiff, collectComments, generateDescription, updatePRDescription };
+module.exports = { run, getDiff, collectComments, updatePRDescription };

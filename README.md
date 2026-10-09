@@ -1,12 +1,12 @@
 # 🤖 Auto-generate PR Description Action: Supercharge Your Pull Requests!
 
-This GitHub Action leverages OpenAI's cutting-edge language models to automatically craft detailed, insightful pull request descriptions. Say goodbye to vague PR summaries and hello to clear, concise, and context-rich descriptions that enhance your team's collaboration and code review process.
+This GitHub Action uses OpenAI, Claude or any OpenRouter model to automatically craft detailed, insightful pull request descriptions. Say goodbye to vague PR summaries and hello to clear, concise, and context-rich descriptions that enhance your team's collaboration and code review process.
 
 ## 🚀 Features
 
 - Automatically generates detailed PR descriptions
-- Uses OpenAI's powerful language models
-- Customizable OpenAI model and temperature settings
+- Three providers — OpenAI (default), Claude and OpenRouter — each in its own module
+- Provider and model selectable by input or environment variable
 - Supports GitHub Actions workflow
 - **Context-aware**: the model sees the diff *plus* the PR's current description and its
   full comment thread (issue comments, review summaries and inline code comments), so
@@ -36,10 +36,10 @@ the token lacks the scope, generation still proceeds on the diff alone.
 - **Issue-closing keywords are guarded.** A generated `Closes #N` / `Fixes #N` / `Resolves #N`
   is turned into `Refs #N` unless the human-written description or a trusted comment already
   contained that reference — so the model cannot be talked into closing unrelated issues on merge.
-- **Secrets are not sent to OpenAI.** The hunks of `.env*`, `*.pem`, `*.key`, `*.p12`/`*.pfx`,
+- **Secrets are not sent to the provider.** The hunks of `.env*`, `*.pem`, `*.key`, `*.p12`/`*.pfx`,
   SSH keys, `master.key`, `credentials.*`/`secrets.*` config files and similar are replaced by a
   placeholder before the diff leaves the runner.
-- **Bounded runtime.** OpenAI requests time out after 3 minutes and are retried on rate limits,
+- **Bounded runtime.** Provider requests time out after 3 minutes and are retried on rate limits,
   5xx and network errors with exponential backoff.
 - **Fork PRs.** Use the `pull_request` trigger. Do not switch to `pull_request_target` to get
   secrets for fork PRs: the action would then run with a write token for untrusted code changes.
@@ -54,7 +54,7 @@ the token lacks the scope, generation still proceeds on the diff alone.
 ## 📋 Requirements
 
 - GitHub repository
-- OpenAI API key
+- An API key for the provider you use: OpenAI, Anthropic (Claude) or OpenRouter
 
 ## 🛠️ Installation
 
@@ -87,7 +87,43 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-3. Add your OpenAI API key to your repository secrets as `OPENAI_API_KEY`.
+3. Add your provider's API key to your repository secrets (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY`).
+
+### 🔀 Providers
+
+| `provider` | Default model | Key (input, or environment variable) |
+|---|---|---|
+| `openai` (default) | `gpt-5.6-luna` | `openai_api_key` / `OPENAI_API_KEY` |
+| `claude` | `claude-haiku-5-5` | `anthropic_api_key` / `ANTHROPIC_API_KEY` (or `CLAUDE_API_KEY`) |
+| `open-router` | `deepseek/deepseek-v4.1-flash` | `openrouter_api_key` / `OPENROUTER_API_KEY` |
+
+Inputs win over environment variables, so the provider can be set once for the whole job:
+
+```yaml
+    env:
+      AI_PROVIDER: claude
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: yuri-val/auto-pr-description-action@v1
+```
+
+Each provider is its own module in `providers/` (`openai.js`, `claude.js`, `open-router.js`).
+
+#### Which model writes best
+
+Measured 2026-10-10 on three real PRs and one 5-commit release (all eight candidates followed
+the output rules; times and costs are per description):
+
+| Provider / model | Character | Avg time | Cost |
+|---|---|---|---|
+| openai / `gpt-6-luna` | shortest, accurate, fewest tokens | 3.5 s | $0.0007 |
+| openai / `gpt-5.6-luna` | accurate, somewhat generic | 4.7 s | $0.0016 |
+| claude / `claude-haiku-5-5` | most specific; the only model to catch every non-obvious change (e.g. a changed default with an upgrade note) | 4.7 s | $0.0014 |
+| open-router / `deepseek/deepseek-v4.1-flash` | detailed and accurate | 4.4 s | $0.0028 |
+| open-router / `z-ai/glm-5.3-flash` | detailed, occasional overstatement | 13.9 s | $0.0012 |
+| open-router / `xiaomi/mimo-v2.6-flash` | detailed, slower | 15.8 s | $0.0011 |
+| open-router / `google/gemini-3.8-flash` | concise, odd grouping, most expensive | 4.6 s | $0.0067 |
+| open-router / `qwen/qwen3.8-flash` | long, very slow | 57.9 s | $0.0025 |
 
 ## ⚙️ Configuration
 
@@ -95,10 +131,15 @@ You can customize the action by providing the following inputs:
 
 | Input | Description | Required | Default |
 |-------|-------------|----------|---------|
-| `openai_api_key` | Your OpenAI API Key | Yes | N/A |
-| `openai_model` | OpenAI model to use (e.g., gpt-5.6-luna, gpt-5.6-terra) | No | gpt-5.6-luna |
+| `provider` | `openai`, `claude` or `open-router` (env `AI_PROVIDER`) | No | openai |
+| `model` | Model for the provider (env `AI_MODEL`) | No | per provider, see above |
+| `openai_api_key` | OpenAI API key (env `OPENAI_API_KEY`) | For `openai` | N/A |
+| `anthropic_api_key` | Anthropic API key (env `ANTHROPIC_API_KEY` / `CLAUDE_API_KEY`) | For `claude` | N/A |
+| `anthropic_workspace_id` | Only for Anthropic keys not scoped to a workspace (env `ANTHROPIC_WORKSPACE_ID`) | No | N/A |
+| `openrouter_api_key` | OpenRouter API key (env `OPENROUTER_API_KEY`) | For `open-router` | N/A |
+| `openai_model` | Deprecated alias of `model` for `openai` | No | N/A |
 | `github_token` | GitHub token with repo permissions | Yes | ${{ github.token }} |
-| `temperature` | Sampling temperature (0.0 to 1.0). Ignored for reasoning models (gpt-5.x, o-series) | No | 0.7 |
+| `temperature` | Sampling temperature (0.0 to 1.0) for non-reasoning OpenAI models only | No | 0.7 |
 
 ## 📤 Outputs
 
@@ -123,7 +164,7 @@ This project is [MIT](https://opensource.org/licenses/MIT) licensed.
 
 ## 🙏 Acknowledgements
 
-- OpenAI for providing the powerful language models
+- OpenAI, Anthropic and OpenRouter for the models
 - GitHub Actions for the seamless integration
 
 ---
