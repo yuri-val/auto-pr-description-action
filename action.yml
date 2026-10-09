@@ -1,23 +1,37 @@
 name: 'Auto-generate PR Description'
-description: 'Automatically generates pull request descriptions using OpenAI when a PR is created or updated.'
+description: 'Automatically generates pull request descriptions with OpenAI, Claude or OpenRouter when a PR is created or updated.'
 author: 'Yuri V'
 runs:
   using: 'node24'
   main: 'dist/index.js'
 inputs:
-  openai_api_key:
-    description: 'Your OpenAI API Key'
-    required: true
-  openai_model:
-    description: 'OpenAI model to use (e.g., gpt-5.6-luna, gpt-5.6-terra) https://developers.openai.com/api/docs/guides/latest-model'
+  provider:
+    description: 'Model provider: openai, claude or open-router. Falls back to the AI_PROVIDER environment variable, then openai.'
     required: false
-    default: 'gpt-5.6-luna'
+  model:
+    description: 'Model to use with the provider. Falls back to AI_MODEL, then the provider default (openai: gpt-6-luna, claude: claude-haiku-5-5, open-router: deepseek/deepseek-v4.1-flash).'
+    required: false
+  openai_api_key:
+    description: 'OpenAI API key (provider openai). Falls back to OPENAI_API_KEY.'
+    required: false
+  anthropic_api_key:
+    description: 'Anthropic API key (provider claude). Falls back to ANTHROPIC_API_KEY or CLAUDE_API_KEY.'
+    required: false
+  anthropic_workspace_id:
+    description: 'Anthropic workspace ID — only for keys that are not scoped to a workspace. Falls back to ANTHROPIC_WORKSPACE_ID.'
+    required: false
+  openrouter_api_key:
+    description: 'OpenRouter API key (provider open-router). Falls back to OPENROUTER_API_KEY.'
+    required: false
+  openai_model:
+    description: 'Deprecated alias of `model` for the openai provider.'
+    required: false
   github_token:
     description: 'GitHub token with repo permissions'
     required: true
     default: '${{ github.token }}'
   temperature:
-    description: 'Sampling temperature for OpenAI (0.0 to 1.0). Ignored for reasoning models (gpt-5.x, o-series), which only support the default.'
+    description: 'Sampling temperature (0.0 to 1.0) for non-reasoning OpenAI models only. Ignored by reasoning models (gpt-5 and later, o-series), Claude and OpenRouter.'
     required: false
     default: '0.7'
 outputs:
