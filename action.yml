@@ -2,7 +2,7 @@ name: 'Auto-generate PR Description'
 description: 'Automatically generates pull request descriptions using OpenAI when a PR is created or updated.'
 author: 'Yuri V'
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js'
 inputs:
   openai_api_key:

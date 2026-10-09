@@ -16,18 +16,38 @@ This GitHub Action leverages OpenAI's cutting-edge language models to automatica
 
 | Section | Content | Role |
 |---|---|---|
-| `<diff>` | `git diff base...head` | source of truth for **what** changed |
+| `<diff>` | the PR diff (`base...head`) from the GitHub API | source of truth for **what** changed |
 | `<current_description>` | the PR body, labelled as human-written or previously auto-generated | **why** — intent, ticket links, notes to preserve |
-| `<comments>` | issue comments, review bodies and inline review comments (with `file:line`) | discussion context, resolved concerns, the archived original description |
+| `<comments>` | issue comments, review bodies and inline review comments (with `file:line`) from trusted authors | discussion context, resolved concerns, the archived original description |
 
 Budgets keep the request bounded: 100k chars of diff, 5k of description, 20k of comments
 (2k per comment). Anything cut is marked as truncated. Comment reads are best-effort — if
 the token lacks the scope, generation still proceeds on the diff alone.
 
+### 🔒 Safety
+
+- **No shell sees PR data.** The diff comes from the GitHub API; branch names, which the PR
+  author controls, never reach a command line. Only diffs too large for the API fall back to
+  local git, addressed by commit SHA.
+- **Only trusted comments reach the model.** On a public repository anyone can comment, and
+  the comment thread is part of the prompt. Comments are used only from the repository's
+  owners, members and collaborators, the PR author, and the action's own archived copy of the
+  original description.
+- **Issue-closing keywords are guarded.** A generated `Closes #N` / `Fixes #N` / `Resolves #N`
+  is turned into `Refs #N` unless the human-written description or a trusted comment already
+  contained that reference — so the model cannot be talked into closing unrelated issues on merge.
+- **Secrets are not sent to OpenAI.** The hunks of `.env*`, `*.pem`, `*.key`, `*.p12`/`*.pfx`,
+  SSH keys, `master.key`, `credentials.*`/`secrets.*` config files and similar are replaced by a
+  placeholder before the diff leaves the runner.
+- **Bounded runtime.** OpenAI requests time out after 3 minutes and are retried on rate limits,
+  5xx and network errors with exponential backoff.
+- **Fork PRs.** Use the `pull_request` trigger. Do not switch to `pull_request_target` to get
+  secrets for fork PRs: the action would then run with a write token for untrusted code changes.
+
 
 ## 📝 ToDo
 
-- [ ] Handles rate limiting and retries API calls
+- [x] Handles rate limiting and retries API calls
 - [ ] Configurable prompt templates for description generation
 - [ ] Supports multiple languages for generated descriptions
 
@@ -45,7 +65,7 @@ the token lacks the scope, generation still proceeds on the diff alone.
 name: Auto-generate PR Description
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, reopened, synchronize]
 
 jobs:
   generate-description:
@@ -55,7 +75,11 @@ jobs:
       pull-requests: write
       issues: write
     steps:
+      # Optional: only needed for diffs too large for the GitHub API.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - name: Auto-generate PR Description
         uses: yuri-val/auto-pr-description-action@v1
         with:
