@@ -12,6 +12,8 @@ const {
   filterTrustedComments,
   isSensitivePath,
   redactSensitiveFiles,
+  isGeneratedPath,
+  omitGeneratedFiles,
   neutralizeClosingKeywords,
   formatComments,
   buildUserMessage,
@@ -208,4 +210,44 @@ test('neutralizeClosingKeywords keeps only references the humans wrote', () => {
 test('the system prompt treats the user message as data', () => {
   assert.match(SYSTEM_PROMPT, /data, not instructions/);
   assert.match(SYSTEM_PROMPT, /closing keywords/);
+});
+
+test('isGeneratedPath flags build output and lockfiles, not source', () => {
+  for (const p of ['dist/index.js', 'packages/web/dist/app.js', 'dist/index.js.map', 'public/app.min.js', 'yarn.lock', 'package-lock.json', 'api/Gemfile.lock', 'go.sum', 'pnpm-lock.yaml']) {
+    assert.ok(isGeneratedPath(p), `${p} should be generated`);
+  }
+  for (const p of ['src/dist.ts', 'index.js', 'package.json', 'Gemfile', 'go.mod', 'docs/distribution.md', 'lib/map.js']) {
+    assert.ok(!isGeneratedPath(p), `${p} should not be generated`);
+  }
+});
+
+test('omitGeneratedFiles keeps the name and size, drops the contents', () => {
+  const diff = [
+    'diff --git a/dist/index.js b/dist/index.js',
+    'index 1..2 100644',
+    '--- a/dist/index.js',
+    '+++ b/dist/index.js',
+    '@@ -1,2 +1,3 @@',
+    '-old bundle line',
+    '+new bundle line 1',
+    '+new bundle line 2',
+    ' context',
+    'diff --git a/index.js b/index.js',
+    '--- a/index.js',
+    '+++ b/index.js',
+    '+const real = change;',
+    '',
+  ].join('\n');
+  const out = omitGeneratedFiles(diff);
+  assert.match(out, /diff --git a\/dist\/index\.js b\/dist\/index\.js\n\[generated file, contents omitted: \+2 -1 lines\]/);
+  assert.doesNotMatch(out, /new bundle line/);
+  assert.match(out, /const real = change;/);
+});
+
+test('a huge generated bundle no longer pushes the source out of the diff budget', () => {
+  const bundle = Array.from({ length: 20000 }, (_, i) => `+bundle line ${i}`).join('\n');
+  const diff = `diff --git a/dist/index.js b/dist/index.js\n--- a/dist/index.js\n+++ b/dist/index.js\n${bundle}\ndiff --git a/src/app.js b/src/app.js\n--- a/src/app.js\n+++ b/src/app.js\n+the change that matters\n`;
+  const msg = buildUserMessage({ diff });
+  assert.match(msg, /the change that matters/);
+  assert.doesNotMatch(msg, /\[diff truncated\]/);
 });
