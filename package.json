@@ -11,13 +11,13 @@
   "author": "Yuri V",
   "license": "MIT",
   "dependencies": {
-    "@actions/core": "^1.11.1",
-    "@actions/github": "^6.0.1",
+    "@actions/core": "^3.0.1",
+    "@actions/github": "^9.1.1",
     "@anthropic-ai/sdk": "^0.133.0"
   },
   "devDependencies": {
-    "@vercel/ncc": "^0.38.4",
-    "husky": "^9.1.6"
+    "@vercel/ncc": "^0.45.0",
+    "husky": "^9.1.7"
   },
   "overrides": {
     "undici": "^6.29.0"
